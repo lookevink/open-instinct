@@ -42,7 +42,24 @@ pnpm instinct dev                 # then, in another terminal:
 pnpm instinct chat "remember that I like window seats"
 ```
 
-**With an iMessage line**
+**With a Sendblue iMessage/SMS line (free to start)**
+
+```bash
+# This creates a free account and shared line. Text the one-time phrase it prints.
+npx -y @sendblue/cli@0.10.0 setup --phone +14155550100
+pnpm instinct init --name "Maria" --phone +14155550100 --sendblue
+pnpm instinct dev --webhook-port 8081
+# Another terminal: cloudflared tunnel --url http://127.0.0.1:8081
+# Register the HTTPS URL printed by your tunnel:
+pnpm instinct connect --webhook-url https://<your-tunnel-host>/webhooks/sendblue
+```
+
+Text the assigned Sendblue number from the phone verified during setup. Your agent
+replies through Sendblue, with automatic iMessage/SMS delivery selection. No Inkbox
+account is required. See [SENDBLUE.md](docs/SENDBLUE.md) for installation, free-plan
+verification, Docker, webhook security, and troubleshooting.
+
+**With an Inkbox iMessage line**
 
 ```bash
 export INKBOX_ADMIN_API_KEY=...   # inkbox.ai console
@@ -70,7 +87,8 @@ For many people, run the [gateway](packages/gateway/README.md): a signup page th
 
 ```
 packages/core       Pi agent loop, policy engine, memory, scheduler, approvals, audit
-packages/inkbox     iMessage, SMS, email, webhooks, agent-to-agent transport
+packages/inkbox     Inkbox messaging, email, webhooks, agent-to-agent transport
+packages/sendblue   Sendblue iMessage/SMS, media, webhooks, free-account setup support
 packages/computer   the desktop (Maritime desktopd in the VM, or hosted Computers MCP)
 packages/apps       Composio Tool Router
 packages/network    contacts, tiers, grants, invitations, agent-to-agent tools

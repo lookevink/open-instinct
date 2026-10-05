@@ -27,6 +27,8 @@ import {
 } from "@open-instinct/core";
 import type { InboundMessage, InstinctConfig, Outbox, RegisteredTool } from "@open-instinct/core";
 import { InkboxA2A, InkboxChannel, InkboxInboundHydrator, InkboxProvisioner, messagingTools, sendFileTool } from "@open-instinct/inkbox";
+import { SendblueChannel, sendblueSettings } from "@open-instinct/sendblue";
+import { MessagingRouter } from "./messaging-router.js";
 import { computerGuidance, detectComputer } from "@open-instinct/computer";
 import type { ComputerBackend } from "@open-instinct/computer";
 import { ComposioApps, DEFAULT_TOOLKITS, appsGuidance, appsTools } from "@open-instinct/apps";
@@ -97,6 +99,8 @@ export async function boot(env: NodeJS.ProcessEnv, opts: BootOptions = {}): Prom
   const model = opts.model ?? resolveModel(config.model.primary, env);
   const modelSpec = `${model.provider}/${model.id}`;
 
+  const sendblue = sendblueSettings(env);
+  const sendblueChannel = sendblue ? new SendblueChannel({ ...sendblue, fetchImpl: opts.fetchImpl }) : undefined;
   const inkbox = inkboxSettings(env, config);
   const a2a = inkbox ? new InkboxA2A({
     apiKey: inkbox.apiKey,
@@ -110,6 +114,7 @@ export async function boot(env: NodeJS.ProcessEnv, opts: BootOptions = {}): Prom
   // Whatever the transport, `chat` replies are buffered for the HTTP layer: that channel
   // is the dashboard or CLI waiting on a response, not a wire Inkbox can deliver on.
   let channel: InkboxChannel | undefined;
+  let messaging: MessagingRouter | undefined;
   let outbox: Outbox;
   let chatBuffer: ChatReplyBuffer;
   if (opts.outbox) {
@@ -117,15 +122,16 @@ export async function boot(env: NodeJS.ProcessEnv, opts: BootOptions = {}): Prom
     const wrapped = new ChatAwareOutbox(opts.outbox);
     outbox = wrapped;
     chatBuffer = wrapped.chat;
-  } else if (inkbox) {
-    channel = new InkboxChannel({
+  } else if (inkbox || sendblueChannel) {
+    channel = inkbox ? new InkboxChannel({
       apiKey: inkbox.apiKey,
       handle: inkbox.handle,
       identityId: inkbox.identityId,
       ...(env.INKBOX_BASE_URL ? { baseUrl: env.INKBOX_BASE_URL } : {}),
       ...(opts.fetchImpl ? { fetchImpl: opts.fetchImpl } : {}),
-    });
-    const wrapped = new ChatAwareOutbox(channel);
+    }) : undefined;
+    messaging = new MessagingRouter(sendblueChannel, channel);
+    const wrapped = new ChatAwareOutbox(messaging);
     outbox = wrapped;
     chatBuffer = wrapped.chat;
   } else {
@@ -152,9 +158,9 @@ export async function boot(env: NodeJS.ProcessEnv, opts: BootOptions = {}): Prom
     }),
   );
 
-  // Messaging needs Inkbox. send_file does not: without a wire it still hands files
+  // Messaging tools use the selected transport. Without a wire, send_file still hands files
   // to the dashboard chat, which is how `instinct chat` and the smoke test get them.
-  if (channel) registry.registerMany(messagingTools({ channel, contacts, config, dataDir: state.root }));
+  if (messaging || channel) registry.registerMany(messagingTools({ channel: messaging ?? channel!, contacts, config, dataDir: state.root }));
   else registry.register(sendFileTool({ contacts, config, dataDir: state.root }));
   const hydrator = channel ? new InkboxInboundHydrator({
     channel,
@@ -293,6 +299,7 @@ export async function boot(env: NodeJS.ProcessEnv, opts: BootOptions = {}): Prom
     promptExtra: promptExtraFor,
     setupSummary: () =>
       setupSummaryFor({
+        sendblue: sendblue ? { number: sendblue.fromNumber } : undefined,
         inkbox: inkbox ? { handle: inkbox.handle } : undefined,
         computerKind: computer?.kind,
         apps: apps ? { connected: appsConnected ?? [], anyApp: apps.allToolkits, toolkits: apps.toolkitSlugs } : undefined,
@@ -332,7 +339,14 @@ export async function boot(env: NodeJS.ProcessEnv, opts: BootOptions = {}): Prom
     modelSpec,
     chatBuffer,
     ...(wallet ? { wallet } : {}),
-    ...(hydrator ? { hydrateInbound: (message: InboundMessage) => hydrator.hydrate(message) } : {}),
+    async hydrateInbound(message: InboundMessage): Promise<InboundMessage> {
+      if (message.meta?.provider === "sendblue") {
+        sendblueChannel?.remember(message);
+        // Sendblue payloads already carry complete direct-conversation scope.
+        return message;
+      }
+      return hydrator ? hydrator.hydrate(message) : message;
+    },
     async close() {
       stopScheduler();
       sync?.stop();

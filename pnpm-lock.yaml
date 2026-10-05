@@ -48,6 +48,9 @@ importers:
 
   packages/cli:
     dependencies:
+      '@open-instinct/sendblue':
+        specifier: workspace:*
+        version: link:../sendblue
       '@inkbox/sdk':
         specifier: ^0.7.13
         version: 0.7.13
@@ -224,8 +227,30 @@ importers:
         specifier: ^3.2.4
         version: 3.2.7(@types/node@22.20.5)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.0)
 
+  packages/sendblue:
+    dependencies:
+      '@open-instinct/core':
+        specifier: workspace:*
+        version: link:../core
+      '@open-instinct/inkbox':
+        specifier: workspace:*
+        version: link:../inkbox
+    devDependencies:
+      '@types/node':
+        specifier: ^22.15.0
+        version: 22.20.5
+      typescript:
+        specifier: ^5.8.3
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.7(@types/node@22.20.5)(jiti@2.7.0)(tsx@4.23.15)(yaml@2.9.0)
+
   packages/server:
     dependencies:
+      '@open-instinct/sendblue':
+        specifier: workspace:*
+        version: link:../sendblue
       '@earendil-works/pi-agent-core':
         specifier: ^1.0.1
         version: 1.0.1(@aws-sdk/credential-provider-node@3.972.84)(@smithy/signature-v4@5.7.4)(undici@8.10.2)(ws@8.22.0)(zod@4.6.5)

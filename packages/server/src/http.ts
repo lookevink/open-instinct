@@ -15,6 +15,7 @@ import http from "node:http";
 import { randomUUID, timingSafeEqual } from "node:crypto";
 import { decodeEvent } from "@open-instinct/core";
 import type { AgentRuntime, HandleResult, InboundMessage, InstinctConfig, OutboundMessage, ScheduleEntry, Scheduler, StateDir } from "@open-instinct/core";
+import { parseSendblueEvent, verifySendblueSecret } from "@open-instinct/sendblue";
 import { DurableInbox, parseInkboxEvent, verifyInkboxSignature } from "@open-instinct/inkbox";
 
 /** Replies the console outbox is holding for a chat conversation. */
@@ -72,7 +73,7 @@ export interface HttpServerOptions {
 
 export const BODY_LIMIT_BYTES = 1024 * 1024;
 export const CHAT_TOKEN_HEADER = "x-instinct-token";
-export const TUNNEL_ROUTES: ReadonlySet<string> = new Set(["GET /health", "POST /webhooks/inkbox"]);
+export const TUNNEL_ROUTES: ReadonlySet<string> = new Set(["GET /health", "POST /webhooks/inkbox", "POST /webhooks/sendblue"]);
 /** A Maritime schedule wake may arrive a little before the minute boundary we computed. */
 export const SCHEDULE_WAKE_GRACE_MS = 90_000;
 /** Envelope event type the gateway relays when Link redirects to its callback URL. */
@@ -296,6 +297,20 @@ export function createHttpServer(app: HttpApp, opts: HttpServerOptions = {}): ht
     if (tunnelOnly && !TUNNEL_ROUTES.has(`${method} ${path}`)) return sendJson(res, 404, { error: "not found" });
 
     if (method === "GET" && path === "/health") return sendJson(res, 200, { ok: true });
+
+    if (method === "POST" && path === "/webhooks/sendblue") {
+      if (!env.SENDBLUE_WEBHOOK_SECRET?.trim() || !env.SENDBLUE_FROM_NUMBER?.trim()) return sendJson(res, 503, { error: "Sendblue not configured" });
+      const secret = req.headers["sb-signing-secret"];
+      if (!verifySendblueSecret(env.SENDBLUE_WEBHOOK_SECRET.trim(), typeof secret === "string" ? secret : undefined)) return sendJson(res, 401, { error: "invalid webhook secret" });
+      const raw = await readBody(req, limit);
+      if (raw === undefined) return sendJson(res, 413, { error: "body too large" });
+      const payload = parseJson(raw);
+      if (payload === undefined) return sendJson(res, 400, { error: "invalid JSON" });
+      const inbound = parseSendblueEvent(payload, env.SENDBLUE_FROM_NUMBER.trim());
+      if (inbound) await acceptInbound(app, inbound);
+      res.writeHead(204).end();
+      return;
+    }
 
     if (method === "POST" && path === "/webhooks/inkbox") {
       const key = signingKey();

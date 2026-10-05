@@ -3,6 +3,10 @@
  * Inkbox runs a shared router number; texting `connect @handle` to it opens a
  * dedicated iMessage thread with the agent.
  */
+import { SendblueChannel, sendblueSettings } from "@open-instinct/sendblue";
+import { parse, str } from "../args.js";
+import { loadSendblueEnv } from "../sendblue.js";
+import { fetchOf } from "../io.js";
 import fs from "node:fs";
 import path from "node:path";
 import type { CliContext } from "../context.js";
@@ -56,6 +60,24 @@ export async function printConnect(ctx: CliContext, target: ConnectTarget, qrFil
 }
 
 export async function runConnect(ctx: CliContext, _argv: string[]): Promise<number> {
+  const { values } = parse("connect", _argv, { "webhook-url": { type: "string" } });
+  loadSendblueEnv(ctx.env, ctx.dataDir);
+  const settings = sendblueSettings(ctx.env);
+  const webhookUrl = str(values, "webhook-url");
+  if (settings) {
+    if (webhookUrl) {
+      if (new URL(webhookUrl).pathname !== "/webhooks/sendblue") throw new CliError("The webhook URL must end in /webhooks/sendblue");
+      await new SendblueChannel({ ...settings, fetchImpl: fetchOf(ctx.io) }).subscribe(webhookUrl);
+      ctx.print("Sendblue receive webhook registered with a secret and line filter.");
+    } else {
+      ctx.print("Register your public listener with `instinct connect --webhook-url https://<host>/webhooks/sendblue`.");
+    }
+    ctx.print(`Text ${settings.fromNumber} from your verified owner phone. No connect @handle command is needed.`);
+    ctx.print(`Tap-to-text link: sms:${settings.fromNumber}`);
+    ctx.print("Free plan: additional recipients need `sendblue add-contact <phone>` and must text this line first.");
+    return 0;
+  }
+  if (webhookUrl) throw new CliError("--webhook-url requires Sendblue. Run init --sendblue first.");
   const target = resolveConnectTarget(ctx);
   await printConnect(ctx, target, path.join(ctx.dataDir, "connect-qr.png"));
   return 0;

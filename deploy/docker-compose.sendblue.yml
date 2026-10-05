@@ -1,0 +1,7 @@
+# Use with docker-compose.yml. Expose this port through an HTTPS tunnel/reverse proxy.
+services:
+  agent:
+    environment:
+      INSTINCT_WEBHOOK_PORT: "8081"
+    ports:
+      - "127.0.0.1:8081:8081"

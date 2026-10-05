@@ -15,8 +15,10 @@ import { parseConversationKey } from "./channel.js";
  * What send_file needs. The channel is optional: without Inkbox the tool still
  * hands files to the dashboard chat, and refuses iMessage, SMS and email.
  */
+export type MessagingChannel = Pick<InkboxChannel, "send" | "sendFile" | "typing" | "react">;
+
 export interface SendFileDeps {
-  channel?: InkboxChannel;
+  channel?: MessagingChannel;
   contacts: ContactStore;
   config: InstinctConfig;
   /**
@@ -28,7 +30,7 @@ export interface SendFileDeps {
 }
 
 export interface MessagingDeps extends SendFileDeps {
-  channel: InkboxChannel;
+  channel: MessagingChannel;
 }
 
 type SendChannel = "imessage" | "sms" | "email";
@@ -305,7 +307,7 @@ export function messagingTools(deps: MessagingDeps): RegisteredTool[] {
  * the file; anything that needs a wire is refused with a plain reason.
  */
 export function sendFileTool(deps: SendFileDeps): RegisteredTool {
-  const wire = (): InkboxChannel => {
+  const wire = (): MessagingChannel => {
     if (!deps.channel) throw new Error("Inkbox is not configured, so files can only be shared in the dashboard chat here.");
     return deps.channel;
   };

@@ -6,6 +6,7 @@ import { Type, type Static } from "@earendil-works/pi-ai";
 import { defineTool, type RegisteredTool, type ToolContext, type ToolResultLike } from "@open-instinct/core";
 
 export interface SetupInput {
+  sendblue?: { number: string };
   inkbox?: { handle: string };
   computerKind?: string;
   apps?: { connected: string[]; anyApp: boolean; toolkits: string[] };
@@ -14,7 +15,9 @@ export interface SetupInput {
 
 export function setupSummaryFor(input: SetupInput): string {
   const lines = ["# What is set up right now"];
-  if (input.inkbox) {
+  if (input.sendblue) {
+    lines.push(`- Messaging: iMessage and SMS through Sendblue from ${input.sendblue.number}. Sendblue selects the delivery service automatically. Direct conversations only; send_file supports attachments up to 5 MB. Free shared-line accounts can only message verified contacts who texted the line first. ${input.inkbox ? "Inkbox also provides email and agent-to-agent messaging." : "Email and agent-to-agent transport are not configured."}`);
+  } else if (input.inkbox) {
     lines.push(`- Messaging: yes. You reach the owner by iMessage and email through Inkbox as @${input.inkbox.handle} (SMS too when the identity has a phone number). Files go out as attachments with send_file.`);
   } else {
     lines.push("- Messaging: no Inkbox identity on this agent. Replies only reach the dashboard or terminal chat; there is no iMessage, SMS or email yet. To enable: the person running this agent sets INKBOX_API_KEY and INKBOX_AGENT_HANDLE (see docs/KEYS.md).");

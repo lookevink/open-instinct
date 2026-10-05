@@ -13,6 +13,7 @@ FROM base AS deps
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml .npmrc tsconfig.base.json ./
 COPY packages/core/package.json packages/core/
 COPY packages/inkbox/package.json packages/inkbox/
+COPY packages/sendblue/package.json packages/sendblue/
 COPY packages/computer/package.json packages/computer/
 COPY packages/apps/package.json packages/apps/
 COPY packages/network/package.json packages/network/

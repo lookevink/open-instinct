@@ -10,7 +10,7 @@ export type { ProvisionedIdentity, ProvisionInput } from "./provisioner.js";
 export { InkboxA2A, A2ARpcError, a2aParts, summarizeSendResult } from "./a2a.js";
 export type { A2AIntent, A2ASendResult } from "./a2a.js";
 export { messagingTools, sendFileTool, resolveTarget, resolveFilePath, mimeTypeFor, maritimeFileFence } from "./tools.js";
-export type { MessagingDeps, SendFileDeps, ResolvedTarget, ResolvedFile } from "./tools.js";
+export type { MessagingChannel, MessagingDeps, SendFileDeps, ResolvedTarget, ResolvedFile } from "./tools.js";
 export { InkboxHttpError, createRest, parseRetryAfter, isHttpStatus, INKBOX_BASE_URL } from "./http.js";
 export type { RestClient, RestOptions } from "./http.js";
 export { DurableInbox } from "./inbox.js";

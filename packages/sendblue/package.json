@@ -1,7 +1,7 @@
 {
-  "name": "@open-instinct/cli",
+  "name": "@open-instinct/sendblue",
   "version": "0.1.0",
-  "description": "instinct CLI: init, dev, deploy to Maritime, connect, invite, trust, status",
+  "description": "Sendblue iMessage and SMS transport for Open Instinct",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
@@ -23,24 +23,15 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run --passWithNoTests",
-    "lint": "tsc -p tsconfig.json --noEmit",
-    "dev": "node --import tsx src/bin.ts dev"
+    "lint": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
     "@open-instinct/core": "workspace:*",
-    "@open-instinct/inkbox": "workspace:*",
-    "@open-instinct/server": "workspace:*",
-    "@inkbox/sdk": "^0.7.13",
-    "maritime-sdk": "^0.9.0",
-    "@open-instinct/sendblue": "workspace:*"
+    "@open-instinct/inkbox": "workspace:*"
   },
   "devDependencies": {
     "@types/node": "^22.15.0",
     "typescript": "^5.8.3",
-    "vitest": "^3.2.4",
-    "tsx": "^4.19.0"
-  },
-  "bin": {
-    "instinct": "./dist/bin.js"
+    "vitest": "^3.2.4"
   }
 }

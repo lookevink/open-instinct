@@ -3,6 +3,8 @@
  * image. The body mirrors the gateway's provisionUser step so a single-user
  * deploy and a multi-user deploy produce the same kind of agent.
  */
+import { loadSendblueEnv } from "../sendblue.js";
+import { sendblueSettings } from "@open-instinct/sendblue";
 import { loadConfig, type InstinctConfig } from "@open-instinct/core";
 import { parse, str, num, flag, type OptionSpec } from "../args.js";
 import type { CliContext } from "../context.js";
@@ -117,6 +119,8 @@ export function buildCreateBody(input: DeployInput): CreateAgentBody {
 }
 
 export async function runDeploy(ctx: CliContext, argv: string[]): Promise<number> {
+  loadSendblueEnv(ctx.env, ctx.dataDir);
+  if (sendblueSettings(ctx.env)) throw new CliError("Sendblue currently requires an always-on self-hosted agent. The Maritime gateway only relays Inkbox events. Use instinct dev --webhook-port 8081 or Docker (docs/SENDBLUE.md).");
   const { values } = parse("deploy", argv, deployOptions);
   const image = str(values, "image");
   if (!image) throw new CliError("--image is required, e.g. --image ghcr.io/you/open-instinct-agent:latest");

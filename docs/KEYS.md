@@ -24,7 +24,8 @@ bank are yours to hand over at move-in.
 | Setup | Required | Optional |
 |---|---|---|
 | Try it on your laptop, no phone | `ANTHROPIC_API_KEY` (or another model key) | `COMPOSIO_API_KEY`, `BRAVE_SEARCH_API_KEY` |
-| Give it an iMessage line | the above plus `INKBOX_ADMIN_API_KEY` | `LINK_*` for payments |
+| Give it a Sendblue iMessage/SMS line | model key plus `instinct init --sendblue` after free CLI setup; see [Sendblue](SENDBLUE.md) | `COMPOSIO_API_KEY` |
+| Give it an Inkbox iMessage line | the above plus `INKBOX_ADMIN_API_KEY` | `LINK_*` for payments |
 | Run it on Maritime for one person | the above plus `MARITIME_API_KEY` | same |
 | Run it for many people (gateway) | all of the above plus `GATEWAY_SIGNUP_SECRET` | `LINK_*` |
 

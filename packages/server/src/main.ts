@@ -39,6 +39,17 @@ async function main(): Promise<void> {
     log("warning: /chat is reachable beyond loopback with no INSTINCT_CHAT_TOKEN; rely on this only behind Maritime or a private network");
   }
 
+  let webhookServer: http.Server | undefined;
+  if (env.INSTINCT_WEBHOOK_PORT) {
+    const webhookPort = Number(env.INSTINCT_WEBHOOK_PORT);
+    if (!Number.isInteger(webhookPort) || webhookPort < 1 || webhookPort > 65535 || webhookPort === port) throw new Error("INSTINCT_WEBHOOK_PORT must be a different port between 1 and 65535");
+    webhookServer = createHttpServer(app, { ...httpOpts, tunnelOnly: true });
+    await new Promise<void>((resolve, reject) => {
+      webhookServer!.once("error", reject);
+      webhookServer!.listen(webhookPort, host, resolve);
+    });
+    log(`webhooks only on ${host}:${webhookPort}`);
+  }
   let tunnelServer: http.Server | undefined;
   let closeTunnel: (() => Promise<void>) | undefined;
   if (env.INSTINCT_TUNNEL === "1" && env.INKBOX_API_KEY) {
@@ -60,6 +71,7 @@ async function main(): Promise<void> {
     timer.unref();
     Promise.resolve()
       .then(() => closeTunnel?.())
+      .then(() => new Promise<void>((resolve) => webhookServer ? webhookServer.close(() => resolve()) : resolve()))
       .then(() => new Promise<void>((resolve) => (tunnelServer ? tunnelServer.close(() => resolve()) : resolve())))
       .then(() => new Promise<void>((resolve) => server.close(() => resolve())))
       .then(() => closeInkboxInbox(app))

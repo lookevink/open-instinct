@@ -29,6 +29,8 @@ export const HELP_GROUPS: HelpGroup[] = [
           "--agent-name \"Maria's Instinct\"",
           "--phone-number (also buy an SMS line)",
           "--skip-inkbox",
+          "--sendblue (import the account created by sendblue setup; no Inkbox required)",
+          "--sendblue-credentials <file> (default: ~/.sendblue/credentials.json)",
           "--use-existing (explicitly import an existing Inkbox identity instead of choosing a free handle)",
           "--rotate-signing-key (replace the identity's signing key; other receivers must use the new key)",
           "--apps / --no-apps (Composio apps; on by itself when COMPOSIO_API_KEY or COMPOSIO_TOOLKITS is in env)",
@@ -37,8 +39,8 @@ export const HELP_GROUPS: HelpGroup[] = [
       },
       {
         name: "connect",
-        usage: "connect",
-        summary: "Print the router number and `connect @handle` text; save the QR to <dataDir>/connect-qr.png.",
+        usage: "connect [--webhook-url https://<host>/webhooks/sendblue]",
+        summary: "Sendblue: register the receive webhook and show your line. Inkbox: print router instructions and save a QR.",
         example: "instinct connect",
       },
     ],
@@ -48,8 +50,8 @@ export const HELP_GROUPS: HelpGroup[] = [
     entries: [
       {
         name: "dev",
-        usage: "dev [--port 8080] [--host 127.0.0.1] [--tunnel] [--quiet]",
-        summary: "Run the agent server in this process. --tunnel opens an Inkbox tunnel so iMessage reaches it.",
+        usage: "dev [--port 8080] [--host 127.0.0.1] [--tunnel] [--webhook-port 8081] [--quiet]",
+        summary: "Run the agent server. --webhook-port exposes only webhooks for an external HTTPS tunnel; --tunnel opens an Inkbox tunnel.",
         example: "instinct dev --port 8080 --tunnel",
       },
       {

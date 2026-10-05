@@ -4,6 +4,9 @@
  * process also opens an Inkbox tunnel and subscribes the webhook, mirroring
  * the server's own main.ts so iMessage reaches a laptop.
  */
+import { sendblueSettings } from "@open-instinct/sendblue";
+import { loadSendblueEnv } from "../sendblue.js";
+import { CliError } from "../io.js";
 import { loadConfig } from "@open-instinct/core";
 import { parse, str, flag, type OptionSpec } from "../args.js";
 import type { CliContext } from "../context.js";
@@ -38,6 +41,7 @@ export interface BootLike {
 }
 
 export interface HttpOptsLike {
+  tunnelOnly?: boolean;
   env?: NodeJS.ProcessEnv;
   logger?: (m: string) => void;
   signingKeyProvider?: () => string | undefined;
@@ -77,6 +81,7 @@ const defaultConnectTunnel: TunnelConnector = async ({ apiKey, handle, baseUrl, 
 };
 
 export const devOptions: OptionSpec = {
+  "webhook-port": { type: "string" },
   port: { type: "string" },
   tunnel: { type: "boolean" },
   host: { type: "string" },
@@ -97,6 +102,12 @@ export async function runDev(ctx: CliContext, argv: string[]): Promise<number> {
   if (flag(values, "tunnel")) env.INSTINCT_TUNNEL = "1";
   const applied = applySecretsToEnv(env, readSecrets(ctx.dataDir));
   if (applied.length > 0) log(`loaded ${applied.join(", ")} from secrets/inkbox.json`);
+  loadSendblueEnv(env, ctx.dataDir);
+  const sendblue = sendblueSettings(env);
+  const webhookPortRaw = str(values, "webhook-port") ?? env.INSTINCT_WEBHOOK_PORT;
+  const webhookPort = webhookPortRaw === undefined ? undefined : Number(webhookPortRaw);
+  if (webhookPort !== undefined && (!Number.isInteger(webhookPort) || webhookPort < 1 || webhookPort > 65535 || webhookPort === port)) throw new CliError("--webhook-port must be a different port between 1 and 65535");
+  if (sendblue && env.INSTINCT_TUNNEL === "1") throw new CliError("--tunnel uses Inkbox. For Sendblue use --webhook-port 8081 and an HTTPS tunnel to port 8081 (docs/SENDBLUE.md).");
   warnIfAppsOff(ctx);
 
   const server = await (ctx.io.importServer ?? defaultImportServer)();
@@ -114,6 +125,23 @@ export async function runDev(ctx: CliContext, argv: string[]): Promise<number> {
   ctx.print(`${c.green("Open Instinct is running")} on http://127.0.0.1:${port}  (data: ${ctx.dataDir})`);
   ctx.print(`  chat:   instinct chat "hello" --url http://127.0.0.1:${port}`);
   ctx.print(`  status: instinct status --url http://127.0.0.1:${port}`);
+
+  let publicWebhookServer: Listenable | undefined;
+  if (webhookPort !== undefined) {
+    publicWebhookServer = server.createHttpServer(app, { env, logger: log, tunnelOnly: true });
+    try {
+      await new Promise<void>((resolve, reject) => {
+        publicWebhookServer!.once?.("error", reject);
+        publicWebhookServer!.listen(webhookPort, "127.0.0.1", resolve);
+      });
+    } catch (error) {
+      await new Promise<void>((resolve) => httpServer.close ? httpServer.close(resolve) : resolve());
+      await server.closeInkboxInbox?.(app);
+      await app.close?.();
+      throw error;
+    }
+    ctx.print(`  webhooks only: http://127.0.0.1:${webhookPort} (point your HTTPS tunnel here)`);
+  }
 
   let tunnel: TunnelHandle | undefined;
   let tunnelServer: Listenable | undefined;
@@ -135,12 +163,13 @@ export async function runDev(ctx: CliContext, argv: string[]): Promise<number> {
       ctx.warn(`tunnel not started: ${err.message}`);
       return undefined;
     });
-  } else {
+  } else if (!sendblue) {
     ctx.print(c.dim("  no tunnel: iMessage webhooks need `--tunnel` or the gateway"));
   }
 
   installShutdown(ctx, log, async () => {
     await tunnel?.close();
+    await new Promise<void>((resolve) => publicWebhookServer?.close ? publicWebhookServer.close(resolve) : resolve());
     await new Promise<void>((resolve) => tunnelServer?.close ? tunnelServer.close(resolve) : resolve());
     await new Promise<void>((resolve) => (httpServer.close ? httpServer.close(() => resolve()) : resolve()));
     await server.closeInkboxInbox?.(app);

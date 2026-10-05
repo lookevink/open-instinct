@@ -10,9 +10,12 @@ import type { CliContext } from "../context.js";
 import { CliError, UsageError } from "../io.js";
 import { makeProvisioner } from "../inkbox-client.js";
 import { readSecrets, secretsPath, secretsToEnv, writeSecrets, type InkboxSecrets } from "../secrets.js";
+import { importSendblueCredentials } from "../sendblue.js";
 import { printConnect } from "./connect.js";
 
 export const initOptions: OptionSpec = {
+  sendblue: { type: "boolean" },
+  "sendblue-credentials": { type: "string" },
   name: { type: "string" },
   phone: { type: "string" },
   email: { type: "string" },
@@ -31,6 +34,8 @@ export const initOptions: OptionSpec = {
 };
 
 export interface InitFlags {
+  sendblue?: boolean;
+  sendblueCredentials?: string;
   name: string;
   phone?: string;
   email?: string;
@@ -73,6 +78,8 @@ export function parseInitFlags(argv: string[], env: NodeJS.ProcessEnv = {}): Ini
   if (flag(values, "no-apps")) apps = false;
   else if (flag(values, "apps") || toolkits || env.COMPOSIO_API_KEY) apps = true;
   return {
+    sendblue: flag(values, "sendblue"),
+    sendblueCredentials: str(values, "sendblue-credentials"),
     name: requireStr(values, "name", "init"),
     phone: str(values, "phone"),
     email: str(values, "email"),
@@ -110,6 +117,8 @@ export function applyInitFlags(config: InstinctConfig, flags: InitFlags): Instin
 
 export async function runInit(ctx: CliContext, argv: string[]): Promise<number> {
   const flags = parseInitFlags(argv, ctx.env);
+  if (flags.sendblueCredentials && !flags.sendblue) throw new UsageError("--sendblue-credentials requires --sendblue", "init");
+  const sendblue = flags.sendblue ? importSendblueCredentials(ctx.env, ctx.dataDir, flags.sendblueCredentials) : undefined;
   const state = ctx.state();
   const { c } = ctx;
 
@@ -131,6 +140,14 @@ export async function runInit(ctx: CliContext, argv: string[]): Promise<number> 
   ctx.print(`  agent  ${config.agent.name}${config.agent.handle ? `  @${config.agent.handle}` : ""}`);
   ctx.print(`  model  ${config.model.primary}`);
   ctx.print(`  apps   ${config.apps.enabled ? `on  ${config.apps.toolkits.join(",")}` : "off  (enable with --apps or COMPOSIO_API_KEY)"}`);
+
+  if (sendblue) {
+    if (!config.owner.phones.length) throw new CliError("Set --phone to your verified personal phone so the agent recognizes its owner.");
+    ctx.print(`Sendblue ready: ${sendblue.fromNumber}. Credentials saved privately in secrets/sendblue.json.`);
+    ctx.print("Start `instinct dev --webhook-port 8081`, expose port 8081 with an HTTPS tunnel, then run `instinct connect --webhook-url https://<host>/webhooks/sendblue`.");
+    ctx.print("On the free plan, use the phone verified during Sendblue setup. Other contacts must be added and text the shared line first.");
+    return 0;
+  }
 
   const adminKey = ctx.env.INKBOX_ADMIN_API_KEY;
   if (!adminKey || flags.skipInkbox) {
