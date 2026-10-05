@@ -1,8 +1,9 @@
 # iMessage and SMS with Sendblue
 
-Sendblue provides the phone channel for an always-on, single-user Open Instinct
+Sendblue is an optional phone channel for an always-on, single-user Open Instinct
 agent. No Inkbox account, Mac server, or paid dedicated number is needed to start.
-Inkbox remains optional for email and agent-to-agent transport. The existing
+Inkbox remains optional for email and agent-to-agent transport. If both lines are
+configured, each conversation is answered on the line it arrived on. The existing
 multi-user gateway and sleeping Maritime deployment use Inkbox and do not yet
 relay Sendblue webhooks; `instinct deploy` rejects Sendblue configurations.
 
@@ -137,7 +138,7 @@ variables, or create a receive subscription with the same secret in Sendblue.
   permissions or trigger replies to the wrong audience.
 - Text replies, proactive `send_message` (subject to account/contact restrictions),
   typing indicators, and tapbacks use Sendblue for Sendblue conversations. Existing
-  Inkbox conversations keep using Inkbox; new phone destinations prefer Sendblue.
+  Inkbox conversations keep using Inkbox; new phone destinations prefer Inkbox.
   Reactions default to the current inbound message when no ID is supplied and
   require a received iMessage in the current conversation. Received-message
   ownership is saved in `sendblue/received/` so validation survives restarts.

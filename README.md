@@ -42,7 +42,16 @@ pnpm instinct dev                 # then, in another terminal:
 pnpm instinct chat "remember that I like window seats"
 ```
 
-**With a Sendblue iMessage/SMS line (free to start)**
+**With an iMessage line**
+
+```bash
+export INKBOX_ADMIN_API_KEY=...   # inkbox.ai console
+pnpm instinct init --name "Maria" --phone +14155550100 --email maria@example.com --handle maria-instinct
+pnpm instinct dev --tunnel
+pnpm instinct connect             # prints the number and the text to send: connect @maria-instinct
+```
+
+**Or with a Sendblue iMessage/SMS line**
 
 ```bash
 # This creates a free account and shared line. Text the one-time phrase it prints.
@@ -54,19 +63,9 @@ pnpm instinct dev --webhook-port 8081
 pnpm instinct connect --webhook-url https://<your-tunnel-host>/webhooks/sendblue
 ```
 
-Text the assigned Sendblue number from the phone verified during setup. Your agent
-replies through Sendblue, with automatic iMessage/SMS delivery selection. No Inkbox
-account is required. See [SENDBLUE.md](docs/SENDBLUE.md) for installation, free-plan
-verification, Docker, webhook security, and troubleshooting.
-
-**With an Inkbox iMessage line**
-
-```bash
-export INKBOX_ADMIN_API_KEY=...   # inkbox.ai console
-pnpm instinct init --name "Maria" --phone +14155550100 --email maria@example.com --handle maria-instinct
-pnpm instinct dev --tunnel
-pnpm instinct connect             # prints the number and the text to send: connect @maria-instinct
-```
+See [SENDBLUE.md](docs/SENDBLUE.md) for free-plan verification, Docker, webhook
+security, and troubleshooting. If both lines are configured, each conversation
+is answered on the line it arrived on.
 
 **The Instinct way: one agent per person on Maritime**
 

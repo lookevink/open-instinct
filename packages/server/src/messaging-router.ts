@@ -3,14 +3,14 @@ import { parseConversationKey, type FileSend, type FileSendResult, type Messagin
 
 type Context = { principal: Principal; conversationKey: string };
 
-/** Replies follow their wire conversation; new phone destinations prefer Sendblue. */
+/** Replies follow their wire conversation; new phone destinations prefer Inkbox, Sendblue is the fallback. */
 export class MessagingRouter implements MessagingChannel {
   constructor(private readonly sendblue?: MessagingChannel, private readonly inkbox?: MessagingChannel) {}
   private forChannel(channel: string, conversationKey?: string): MessagingChannel {
     const phone = channel === "imessage" || channel === "sms";
     let transport = this.inkbox;
     if (phone) {
-      if (!conversationKey) transport = this.sendblue ?? this.inkbox;
+      if (!conversationKey) transport = this.inkbox ?? this.sendblue;
       else if (parseConversationKey(conversationKey).id.startsWith("sendblue:")) transport = this.sendblue;
     }
     if (!transport) throw new Error(`No transport configured for ${conversationKey ?? channel}`);

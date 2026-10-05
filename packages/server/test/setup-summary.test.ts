@@ -19,6 +19,12 @@ describe("setup summary", () => {
     expect(text).toContain("Connected: gmail");
     expect(text).toContain("wallet connected");
   });
+  it("leads with Inkbox when Sendblue is also connected", () => {
+    const both = setupSummaryFor({ inkbox: { handle: "maria-instinct" }, sendblue: { number: "+15550001111" } });
+    expect(both.indexOf("@maria-instinct")).toBeLessThan(both.indexOf("+15550001111"));
+    expect(both).toContain("new messages go out through Inkbox");
+    expect(setupSummaryFor({ sendblue: { number: "+15550001111" } })).toContain("through Sendblue from +15550001111");
+  });
   it("the stand-in apps_connect names the missing key instead of a screen", async () => {
     const tool = appsNotConfiguredTool();
     const ctx = { principal: { kind: "owner", id: "owner", tier: "owner", displayName: "Maria" }, conversationKey: "imessage:1", channel: "imessage", now: () => new Date() } as unknown as ToolContext;

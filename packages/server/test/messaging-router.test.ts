@@ -27,14 +27,20 @@ it.each(["imessage", "sms"] as const)("keeps %s replies, files, typing and react
     for (const fn of Object.values(other)) expect(fn).not.toHaveBeenCalled();
   }
 });
-it("prefers Sendblue for new phone destinations and preserves Inkbox email", async () => {
+it("prefers Inkbox for new phone destinations, falls back to Sendblue, and keeps email on Inkbox", async () => {
   const sendblue = transport(), inkbox = transport();
   const router = new MessagingRouter(sendblue, inkbox);
   const msg = { channel: "imessage" as const, to: "+15550001111", text: "new" };
   await router.send(msg, ctx);
-  expect(sendblue.send).toHaveBeenCalledWith(msg, ctx);
+  expect(inkbox.send).toHaveBeenCalledWith(msg, ctx);
+  expect(sendblue.send).not.toHaveBeenCalled();
+  const sms = { channel: "sms" as const, to: "+15550001111", text: "new" };
+  await new MessagingRouter(sendblue, undefined).send(sms, ctx);
+  expect(sendblue.send).toHaveBeenCalledWith(sms, ctx);
+  vi.clearAllMocks();
   await router.send({ channel: "email", to: "owner@example.com", text: "email" }, ctx);
   expect(inkbox.send).toHaveBeenCalledOnce();
+  expect(sendblue.send).not.toHaveBeenCalled();
   expect(() => new MessagingRouter(sendblue).typing("imessage:inkbox-id")).toThrow(/No transport/);
   expect(() => new MessagingRouter(undefined, inkbox).typing("imessage:sendblue:+15550002222:+15550001111")).toThrow(/No transport/);
 });
