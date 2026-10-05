@@ -88,7 +88,11 @@ pnpm instinct connect --webhook-url https://YOUR-HOST.trycloudflare.com/webhooks
 
 This appends a `receive` webhook with a per-webhook secret and a line filter.
 Existing account subscriptions are preserved. Repeating the same registration
-is a no-op. A matching URL with a different secret or line filter is rejected;
+is a no-op. Concurrent `connect` calls sharing the agent data directory are
+locked so only one can register. A failed process can leave
+`secrets/sendblue-register.lock`; remove it only after confirming that process
+has stopped. Registration also checks the account again after posting and
+reports duplicate URLs, including races from other hosts, for manual cleanup. A matching URL with a different secret or line filter is rejected;
 remove that URL in Sendblue before registering the new settings. Every request must present the
 matching `sb-signing-secret`; invalid secrets are rejected before parsing.
 If your temporary tunnel hostname changes, register the new URL and remove the
@@ -132,13 +136,23 @@ variables, or create a receive subscription with the same secret in Sendblue.
   recipient to SMS. Groups are ignored so group senders cannot acquire owner
   permissions or trigger replies to the wrong audience.
 - Text replies, proactive `send_message` (subject to account/contact restrictions),
-  typing indicators, and tapbacks use Sendblue. Reactions require a received
-  iMessage in the current conversation. Incoming media URLs reach the model;
+  typing indicators, and tapbacks use Sendblue for Sendblue conversations. Existing
+  Inkbox conversations keep using Inkbox; new phone destinations prefer Sendblue.
+  Reactions default to the current inbound message when no ID is supplied and
+  require a received iMessage in the current conversation. Received-message
+  ownership is saved in `sendblue/received/` so validation survives restarts.
+  Incoming media is downloaded to `workspace/inbound/` using the shared bounded,
+  public-URL downloader; the model gets a local path, or a visible URL fallback;
   outbound `send_file` uploads files and sends them as attachments, capped at
   5 MB to fit SMS fallback. Email requires Inkbox.
 - Admission is written to the existing durable `inkbox-inbox.json` before HTTP
   acknowledgement. Sendblue IDs are namespaced and duplicate webhook deliveries
   do not rerun a completed turn. The historical filename is shared with Inkbox.
+  The most recent 5,000 completed receipts are retained; older IDs become compact
+  permanent SHA-256 tombstones in the same file, so late retries remain duplicates.
+  Tombstones and reaction ownership records grow with message history and must be
+  included in state backups. Upgrades cannot recover IDs already pruned by an older
+  version; downgrading to that version also discards tombstones on its next write.
 - A send accepted by the API is not proof of handset delivery. Inspect Sendblue's
   message status for `DELIVERED` or a terminal error when testing live.
 - The owner-only `/status` includes `inkboxInbox` counts. `uncertain` means a model

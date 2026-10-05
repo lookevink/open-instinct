@@ -210,7 +210,7 @@ const sendMessageParams = Type.Object({
 });
 
 const reactParams = Type.Object({
-  messageId: Type.String({ description: "The iMessage id to react to (from the conversation)." }),
+  messageId: Type.Optional(Type.String({ description: "A received iMessage id in this conversation. Omit to react to the current inbound message." })),
   reaction: Type.String({ description: "love, like, dislike, laugh, emphasize or question." }),
 });
 
@@ -294,7 +294,9 @@ export function messagingTools(deps: MessagingDeps): RegisteredTool[] {
       },
     },
     execute: async (args, ctx) => {
-      await deps.channel.react(ctx.deliveryKey ?? ctx.conversationKey, args.messageId, args.reaction);
+      const messageId = args.messageId ?? ctx.replyRef?.messageId;
+      if (!messageId) throw new Error("No incoming message to react to; provide a received messageId.");
+      await deps.channel.react(ctx.deliveryKey ?? ctx.conversationKey, messageId, args.reaction);
       return textResult(`Reacted ${args.reaction}.`);
     },
   });

@@ -88,3 +88,46 @@ it("processes authenticated iMessage/SMS over HTTP through durable admission, ag
     rmSync(data, { recursive: true, force: true });
   }
 }, 20_000);
+
+it("downloads Sendblue media without Inkbox and gives the runtime a readable local attachment", async () => {
+  const data = mkdtempSync(join(tmpdir(), "instinct-sendblue-media-"));
+  const faux = fauxProvider({ provider: "faux", models: [{ id: "media" }] });
+  const models = createModels(); models.setProvider(faux.provider);
+  const mediaRequests: RequestInit[] = [];
+  const reactions: unknown[] = [];
+  const app = await boot({ INSTINCT_DATA_DIR: data, INSTINCT_OWNER_PHONE: "+15550001111", INSTINCT_COMPUTER: "none", INSTINCT_SKILLS_DIR: join(data, "no-skills"), SENDBLUE_API_KEY: "key", SENDBLUE_API_SECRET: "secret", SENDBLUE_FROM_NUMBER: "+15550002222", SENDBLUE_WEBHOOK_SECRET: "webhook" }, {
+    model: faux.getModel("media"), streamFn: models.streamSimple.bind(models) as unknown as StreamFn, logger: () => {},
+    fetchImpl: (async (url, init) => {
+      if (String(url) === "https://8.8.8.8/photo") {
+        mediaRequests.push(init ?? {});
+        return new Response("fixture-image-bytes", { headers: { "content-type": "image/png" } });
+      }
+      if (String(url) === "https://api.sendblue.com/api/send-reaction") reactions.push(JSON.parse(String(init?.body)));
+      if (String(url).startsWith("https://api.sendblue.com/")) return Response.json({ status: "SENT", message_handle: "media-reply" });
+      throw new Error("Unexpected external request");
+    }) as typeof fetch,
+  });
+  try {
+    const { parseSendblueEvent } = await import("@open-instinct/sendblue");
+    const inbound = parseSendblueEvent({ is_outbound: false, status: "RECEIVED", message_handle: "photo", from_number: "+15550001111", to_number: "+15550002222", content: "Look at this image", service: "iMessage", media_url: "https://8.8.8.8/photo" }, "+15550002222")!;
+    const hydrated = await app.hydrateInbound!(inbound);
+    const attachment = hydrated.attachments![0]!;
+    expect(attachment.path).toMatch(/workspace\/inbound\/.*\.png$/);
+    expect(attachment.mimeType).toBe("image/png");
+    expect(readFileSync(attachment.path!, "utf8")).toBe("fixture-image-bytes");
+    expect(mediaRequests).toHaveLength(1);
+    expect(mediaRequests[0]!.headers).toEqual({ accept: "*/*" });
+    let sawAttachment = false;
+    faux.setResponses([(context) => {
+      sawAttachment = JSON.stringify(context).includes(attachment.path!);
+      return fauxAssistantMessage([fauxToolCall("react", { reaction: "love" })], { stopReason: "toolUse" });
+    }, fauxAssistantMessage("Image received")]);
+    await app.runtime.handleInbound(hydrated);
+    expect(sawAttachment).toBe(true);
+    expect(reactions).toEqual([{ from_number: "+15550002222", message_handle: "photo", reaction: "love" }]);
+    const blocked = await app.hydrateInbound!({ ...inbound, attachments: [{ url: "https://127.0.0.1/private" }] });
+    expect(blocked.attachments![0]!.path).toBeUndefined();
+    expect(blocked.text).toContain("could not be downloaded");
+    expect(mediaRequests).toHaveLength(1);
+  } finally { await app.close(); rmSync(data, { recursive: true, force: true }); }
+});

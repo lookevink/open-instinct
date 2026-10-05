@@ -73,6 +73,8 @@ it("sends typing only for iMessage and restricts reactions to the current inboun
   await channel.typing(ctx.conversationKey);
   await channel.react(ctx.conversationKey, "in-1", "love");
   expect(fetchImpl).toHaveBeenCalledTimes(2);
+  expect(fetchImpl).toHaveBeenNthCalledWith(1, "https://api.sendblue.com/api/send-typing-indicator", expect.objectContaining({ method: "POST", body: JSON.stringify({ from_number: line, number: owner }) }));
+  expect(fetchImpl).toHaveBeenNthCalledWith(2, "https://api.sendblue.com/api/send-reaction", expect.objectContaining({ method: "POST", body: JSON.stringify({ from_number: line, message_handle: "in-1", reaction: "love" }) }));
   await expect(channel.react("imessage:other-thread", "in-1", "love")).rejects.toThrow(/current conversation/);
   await expect(channel.react(ctx.conversationKey, "someone-elses-message", "love")).rejects.toThrow(/current conversation/);
   expect(fetchImpl).toHaveBeenCalledTimes(2);
@@ -89,4 +91,37 @@ it("registers once and refuses to overwrite a webhook with different settings", 
   existing.secret = "old-secret";
   await expect(channel.subscribe(url)).rejects.toThrow(/already exists/);
   expect(fetchImpl.mock.calls.every((c) => c[1].method === "GET")).toBe(true);
+});
+
+it("restores received reaction targets after process restart", async () => {
+  const { mkdtempSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { StateDir } = await import("@open-instinct/core");
+  const dir = mkdtempSync(join(tmpdir(), "sendblue-reactions-"));
+  try {
+    const state = new StateDir(dir);
+    const first = new SendblueChannel({ ...config, state });
+    first.remember(parseSendblueEvent(event, line)!);
+    const fetchImpl = vi.fn(async () => Response.json({ status: "OK" }));
+    const restarted = new SendblueChannel({ ...config, state, fetchImpl });
+    await restarted.react(ctx.conversationKey, "in-1", "love");
+    expect(fetchImpl).toHaveBeenCalledWith("https://api.sendblue.com/api/send-reaction", expect.objectContaining({ body: JSON.stringify({ from_number: line, message_handle: "in-1", reaction: "love" }) }));
+    await expect(restarted.react(`imessage:sendblue:${line}:+15550009999`, "in-1", "like")).rejects.toThrow(/current conversation/);
+    const otherLine = new SendblueChannel({ ...config, fromNumber: "+15550003333", state, fetchImpl });
+    await expect(otherLine.react(ctx.conversationKey, "in-1", "like")).rejects.toThrow(/current conversation/);
+    expect(fetchImpl).toHaveBeenCalledOnce();
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+it("detects racing duplicate subscriptions on the post-registration read", async () => {
+  const url = "https://agent.example/webhooks/sendblue";
+  const hook = { url, secret: config.webhookSecret, sendblue_numbers: [line] };
+  const fetchImpl = vi.fn()
+    .mockResolvedValueOnce(Response.json({ webhooks: { receive: [] } }))
+    .mockResolvedValueOnce(Response.json({ status: "OK" }))
+    .mockResolvedValueOnce(Response.json({ webhooks: { receive: [hook, hook] } }));
+  const channel = new SendblueChannel({ ...config, fetchImpl });
+  await expect(channel.subscribe(url)).rejects.toThrow(/Duplicate receive subscriptions/);
+  expect(fetchImpl.mock.calls.map(([, init]) => init.method)).toEqual(["GET", "POST", "GET"]);
 });

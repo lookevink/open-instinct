@@ -119,3 +119,20 @@ describe("durable inbox", () => {
     expect(() => inbox.enqueue("second", {})).toThrow("full");
   });
 });
+
+it("retains duplicate tombstones across receipt pruning and restart", async () => {
+  const path = file();
+  const oldId = "sendblue:+15550002222:old-message";
+  const completed = Array.from({ length: 5001 }, (_, i) => ({ id: i === 0 ? oldId : `newer-${i}`, status: "done", attempts: 1, nextAttemptAt: 0 }));
+  writeFileSync(path, JSON.stringify({ version: 1, receipts: completed }));
+  let calls = 0;
+  const inbox = new DurableInbox({ file: path, handle: async () => { calls++; } });
+  inbox.enqueue("latest", {});
+  await inbox.drain();
+  expect(JSON.parse(readFileSync(path, "utf8")).receipts.some((r: { id: string }) => r.id === oldId)).toBe(false);
+  expect(inbox.enqueue(oldId, {})).toBe(false);
+  const restarted = new DurableInbox({ file: path, handle: async () => { calls++; } });
+  expect(restarted.enqueue(oldId, {})).toBe(false);
+  await restarted.drain();
+  expect(calls).toBe(1);
+});

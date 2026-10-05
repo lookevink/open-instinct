@@ -1,4 +1,4 @@
-import type { Server } from "node:http";
+import { createServer, type Server } from "node:http";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { StateDir, defaultConfig } from "@open-instinct/core";
 import { createHttpServer, listenTunnelServer } from "@open-instinct/server";
@@ -45,10 +45,10 @@ it("starts the Sendblue webhook-only listener and keeps the owner API off it", a
   const dir = tmpDir();
   const incoming = vi.fn(async (msg) => ({ acked: true, conversationKey: msg.conversationKey, principal: { kind: "owner" as const, id: "owner", tier: "owner" as const, displayName: "Owner" } }));
   const app: HttpApp = { state: new StateDir(dir), config: defaultConfig(), scheduler: { toMaritimeSchedules: () => [] }, runtime: { handleInbound: incoming, stats: () => ({ conversations: 0, busy: 0 }) } };
-  const probe = createHttpServer(app, { env: {} });
+  const probe = createServer();
   await new Promise<void>((resolve, reject) => { probe.once("error", reject); probe.listen(0, "127.0.0.1", resolve); });
   const port = (probe.address() as { port: number }).port;
-  // Keep this probe as an owner listener until runDev joins the shared inbox.
+  await new Promise<void>((resolve) => probe.close(() => resolve()));
   const context = makeContext({ INSTINCT_DATA_DIR: dir, SENDBLUE_API_KEY: "key", SENDBLUE_API_SECRET: "secret", SENDBLUE_FROM_NUMBER: "+15550002222", SENDBLUE_WEBHOOK_SECRET: "webhook" }, {
     stdout: () => {}, stderr: () => {}, installSignalHandlers: false,
     importServer: async () => ({
@@ -56,17 +56,14 @@ it("starts the Sendblue webhook-only listener and keeps the owner API off it", a
       createHttpServer: (a, opts) => {
         const s = createHttpServer(a as unknown as HttpApp, opts);
         servers.push(s);
-        // Use a kernel-selected port without a port reservation race.
-        const listen = s.listen.bind(s);
-        s.listen = ((requested: number, host: string, cb: () => void) => listen(opts?.tunnelOnly ? 0 : requested, host, cb)) as typeof s.listen;
         return s;
       },
     }),
   });
-  servers.push(probe);
   await runDev(context, ["--port", "0", "--webhook-port", String(port)]);
   const publicServer = servers.at(-1)!;
-  const url = `http://127.0.0.1:${(publicServer.address() as { port: number }).port}`;
+  expect((publicServer.address() as { port: number }).port).toBe(port);
+  const url = `http://127.0.0.1:${port}`;
   expect((await fetch(url + "/health")).status).toBe(200);
   expect((await fetch(url + "/status")).status).toBe(404);
   expect((await fetch(url + "/chat", { method: "POST", body: "{}" })).status).toBe(404);

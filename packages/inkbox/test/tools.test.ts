@@ -289,3 +289,11 @@ describe("send_file", () => {
     expect(sentFiles[0]?.file.content.length).toBe(10 * 1024 * 1024 + 1);
   });
 });
+
+it("reacts to the current inbound message without requiring the model to invent its ID", async () => {
+  const ctx = { ...ctxFor(owner, "imessage:session"), deliveryKey: "imessage:wire", replyRef: { messageId: "current-inbound" } };
+  await tool("react").execute({ reaction: "love" }, ctx);
+  expect(channel.react).toHaveBeenCalledWith("imessage:wire", "current-inbound", "love");
+  await expect(tool("react").execute({ reaction: "like" }, ctxFor(owner, "imessage:empty"))).rejects.toThrow(/No incoming message/);
+  expect(channel.react).toHaveBeenCalledOnce();
+});

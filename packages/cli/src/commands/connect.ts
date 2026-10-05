@@ -5,7 +5,7 @@
  */
 import { SendblueChannel, sendblueSettings } from "@open-instinct/sendblue";
 import { parse, str } from "../args.js";
-import { loadSendblueEnv } from "../sendblue.js";
+import { loadSendblueEnv, withSendblueRegistrationLock } from "../sendblue.js";
 import { fetchOf } from "../io.js";
 import fs from "node:fs";
 import path from "node:path";
@@ -67,7 +67,7 @@ export async function runConnect(ctx: CliContext, _argv: string[]): Promise<numb
   if (settings) {
     if (webhookUrl) {
       if (new URL(webhookUrl).pathname !== "/webhooks/sendblue") throw new CliError("The webhook URL must end in /webhooks/sendblue");
-      await new SendblueChannel({ ...settings, fetchImpl: fetchOf(ctx.io) }).subscribe(webhookUrl);
+      await withSendblueRegistrationLock(ctx.dataDir, () => new SendblueChannel({ ...settings, fetchImpl: fetchOf(ctx.io) }).subscribe(webhookUrl));
       ctx.print("Sendblue receive webhook registered with a secret and line filter.");
     } else {
       ctx.print("Register your public listener with `instinct connect --webhook-url https://<host>/webhooks/sendblue`.");

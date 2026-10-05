@@ -1,4 +1,5 @@
 import { closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { dirname } from "node:path";
 
 type Status = "queued" | "running" | "done" | "uncertain";
@@ -25,6 +26,7 @@ export interface DurableInboxOptions<T> {
 /** Single-process receipt store. Admission reaches disk before the caller acknowledges. */
 export class DurableInbox<T> {
   private readonly rows: Map<string, Receipt<T>>;
+  private readonly tombstones: Set<string>;
   private readonly active = new Set<Promise<void>>();
   private readonly now: () => number;
   private timer?: ReturnType<typeof setTimeout>;
@@ -33,8 +35,10 @@ export class DurableInbox<T> {
 
   constructor(private readonly opts: DurableInboxOptions<T>) {
     this.now = opts.now ?? Date.now;
-    const saved = existsSync(opts.file) ? JSON.parse(readFileSync(opts.file, "utf8")) as { version: number; receipts: Receipt<T>[] } : { version: 1, receipts: [] };
+    const saved = existsSync(opts.file) ? JSON.parse(readFileSync(opts.file, "utf8")) as { version: number; receipts: Receipt<T>[]; tombstones?: string[] } : { version: 1, receipts: [] };
     if (saved.version !== 1 || !Array.isArray(saved.receipts)) throw new Error("Invalid webhook inbox state");
+    if (saved.tombstones !== undefined && (!Array.isArray(saved.tombstones) || saved.tombstones.some((id) => typeof id !== "string" || !/^[a-f0-9]{64}$/.test(id)))) throw new Error("Invalid webhook tombstones");
+    this.tombstones = new Set(saved.tombstones ?? []);
     this.rows = new Map(saved.receipts.map((row) => {
       if (!row.id || !["queued", "running", "done", "uncertain"].includes(row.status)) throw new Error("Invalid webhook receipt");
       // An interrupted handler may already have performed external actions.
@@ -44,7 +48,7 @@ export class DurableInbox<T> {
 
   enqueue(id: string, payload: T): boolean {
     if (this.closed) throw new Error("Webhook inbox is closed");
-    if (this.rows.has(id)) return false;
+    if (this.rows.has(id) || this.tombstones.has(this.fingerprint(id))) return false;
     if (!id) throw new Error("Webhook event id is required");
     const pending = [...this.rows.values()].filter((row) => row.status !== "done").length;
     if (pending >= (this.opts.maxPending ?? 5000)) throw new Error("Webhook inbox is full");
@@ -141,15 +145,20 @@ export class DurableInbox<T> {
     }
   }
 
+  private fingerprint(id: string): string { return createHash("sha256").update(id).digest("hex"); }
+
   private persist(): void {
     const completed = [...this.rows.values()].filter((r) => r.status === "done");
-    for (const row of completed.slice(0, Math.max(0, completed.length - 5000))) this.rows.delete(row.id);
+    for (const row of completed.slice(0, Math.max(0, completed.length - 5000))) {
+      this.tombstones.add(this.fingerprint(row.id));
+      this.rows.delete(row.id);
+    }
     const dir = dirname(this.opts.file);
     mkdirSync(dir, { recursive: true, mode: 0o700 });
     const temporary = `${this.opts.file}.${process.pid}.tmp`;
     const fd = openSync(temporary, "w", 0o600);
     try {
-      writeFileSync(fd, JSON.stringify({ version: 1, receipts: [...this.rows.values()] }));
+      writeFileSync(fd, JSON.stringify({ version: 1, receipts: [...this.rows.values()], tombstones: [...this.tombstones] }));
       fsyncSync(fd);
     } finally { closeSync(fd); }
     renameSync(temporary, this.opts.file);

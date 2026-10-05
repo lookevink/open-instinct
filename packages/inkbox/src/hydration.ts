@@ -29,8 +29,7 @@ export class InkboxInboundHydrator {
     if (msg.channel === "email" && (msg.meta?.bodyTruncated || msg.meta?.bodyUnavailable || msg.meta?.hasAttachments)) {
       await this.email(msg);
     }
-    if (this.opts.mediaDir && msg.attachments?.length) await this.downloadAttachments(msg);
-    return msg;
+    return downloadInboundAttachments(msg, this.opts);
   }
 
   private async conversation(msg: InboundMessage): Promise<void> {
@@ -77,39 +76,44 @@ export class InkboxInboundHydrator {
     if (msg.meta?.hasAttachments && attachments.length === 0) msg.text += "\n[Email attachments could not be retrieved.]";
     if (metadata.length > INBOUND_ATTACHMENT_LIMIT) msg.text += `\n[Only the first ${INBOUND_ATTACHMENT_LIMIT} email attachments are included.]`;
   }
+}
 
-  private async downloadAttachments(msg: InboundMessage): Promise<void> {
-    const dir = this.opts.mediaDir!;
-    await mkdir(dir, { recursive: true, mode: 0o700 });
-    const saved: NonNullable<InboundMessage["attachments"]> = [];
-    const attachments = msg.attachments ?? [];
-    for (const attachment of attachments.slice(0, INBOUND_ATTACHMENT_LIMIT)) {
-      if (!attachment.url || attachment.path) {
-        saved.push(attachment);
-        continue;
-      }
-      try {
-        const fetched = await fetchPublic(this.opts.fetchImpl ?? fetch, attachment.url, {
-          signal: AbortSignal.timeout(20_000),
-          headers: { accept: "*/*" },
-          ...(this.opts.lookup ? { lookup: this.opts.lookup } : {}),
-        });
-        if (!fetched.ok) throw new Error("The attachment URL is not available for download");
-        if (!fetched.res.ok) throw new Error(`Attachment download returned HTTP ${fetched.res.status}`);
-        const data = await boundedBytes(fetched.res, this.opts.maxAttachmentBytes ?? INBOUND_ATTACHMENT_BYTES);
-        const hash = createHash("sha256").update(`${msg.id}\n${attachment.url}`).digest("hex");
-        const path = join(dir, `${hash}${extension(attachment.mimeType, attachment.name)}`);
-        await writeFile(path, data, { mode: 0o600 });
-        saved.push({ ...attachment, path });
-      } catch {
-        // Retain the full URL and make incomplete attachment handling explicit.
-        saved.push(attachment);
-        msg.text += "\n[An attachment could not be downloaded; its original URL is included below.]";
-      }
+/** Download public attachments without provider API credentials or conversation lookups. */
+export async function downloadInboundAttachments(message: InboundMessage, opts: Omit<HydrationOptions, "channel">): Promise<InboundMessage> {
+  if (!opts.mediaDir || !message.attachments?.length) return message;
+  const msg = { ...message };
+  const dir = opts.mediaDir;
+  await mkdir(dir, { recursive: true, mode: 0o700 });
+  const saved: NonNullable<InboundMessage["attachments"]> = [];
+  const attachments = msg.attachments ?? [];
+  for (const attachment of attachments.slice(0, INBOUND_ATTACHMENT_LIMIT)) {
+    if (!attachment.url || attachment.path) {
+      saved.push(attachment);
+      continue;
     }
-    if (attachments.length > INBOUND_ATTACHMENT_LIMIT) msg.text += `\n[Only the first ${INBOUND_ATTACHMENT_LIMIT} attachments are included.]`;
-    msg.attachments = saved;
+    try {
+      const fetched = await fetchPublic(opts.fetchImpl ?? fetch, attachment.url, {
+        signal: AbortSignal.timeout(20_000),
+        headers: { accept: "*/*" },
+        ...(opts.lookup ? { lookup: opts.lookup } : {}),
+      });
+      if (!fetched.ok) throw new Error("The attachment URL is not available for download");
+      if (!fetched.res.ok) throw new Error(`Attachment download returned HTTP ${fetched.res.status}`);
+      const data = await boundedBytes(fetched.res, opts.maxAttachmentBytes ?? INBOUND_ATTACHMENT_BYTES);
+      const hash = createHash("sha256").update(`${msg.id}\n${attachment.url}`).digest("hex");
+      const mimeType = attachment.mimeType ?? fetched.res.headers.get("content-type")?.split(";")[0]?.trim();
+      const path = join(dir, `${hash}${extension(mimeType, attachment.name)}`);
+      await writeFile(path, data, { mode: 0o600 });
+      saved.push({ ...attachment, ...(mimeType ? { mimeType } : {}), path });
+    } catch {
+      // Retain the full URL and make incomplete attachment handling explicit.
+      saved.push(attachment);
+      msg.text += "\n[An attachment could not be downloaded; its original URL is included below.]";
+    }
   }
+  if (attachments.length > INBOUND_ATTACHMENT_LIMIT) msg.text += `\n[Only the first ${INBOUND_ATTACHMENT_LIMIT} attachments are included.]`;
+  msg.attachments = saved;
+  return msg;
 }
 
 async function boundedBytes(res: Response, cap: number): Promise<Uint8Array> {

@@ -1,5 +1,5 @@
-import { timingSafeEqual } from "node:crypto";
-import type { InboundMessage, OutboundMessage, Outbox, Principal } from "@open-instinct/core";
+import { createHash, timingSafeEqual } from "node:crypto";
+import type { InboundMessage, OutboundMessage, Outbox, Principal, StateDir } from "@open-instinct/core";
 import { parseConversationKey, splitMessageText, type FileSend, type FileSendResult } from "@open-instinct/inkbox";
 
 export interface SendblueSettings {
@@ -59,6 +59,7 @@ export function parseSendblueEvent(payload: unknown, fromNumber: string): Inboun
 
 export interface SendblueOptions extends SendblueSettings {
   fetchImpl?: typeof fetch;
+  state?: Pick<StateDir, "readJson" | "writeJson">;
 }
 type SendContext = { principal: Principal; conversationKey: string };
 
@@ -130,8 +131,14 @@ export class SendblueChannel implements Outbox {
 
   remember(msg: InboundMessage): void {
     if (msg.meta?.provider !== "sendblue" || !msg.replyRef.messageId) return;
+    this.opts.state?.writeJson(this.receivedFile(msg.replyRef.messageId), { messageId: msg.replyRef.messageId, conversationKey: msg.conversationKey });
     this.received.set(msg.replyRef.messageId, msg.conversationKey);
     if (this.received.size > 1000) this.received.delete(this.received.keys().next().value!);
+  }
+
+  private receivedFile(messageId: string): string {
+    const hash = createHash("sha256").update(`${this.opts.fromNumber}\n${messageId}`).digest("hex");
+    return `sendblue/received/${hash}.json`;
   }
 
   async typing(conversationKey: string): Promise<void> {
@@ -140,7 +147,9 @@ export class SendblueChannel implements Outbox {
   }
 
   async react(conversationKey: string, messageId: string, reaction: string): Promise<void> {
-    if (parseConversationKey(conversationKey).channel !== "imessage" || this.received.get(messageId) !== conversationKey) throw new Error("The reaction target must be a received iMessage in the current conversation");
+    const saved = this.opts.state?.readJson<{ messageId: string; conversationKey: string } | null>(this.receivedFile(messageId), null);
+    const receivedKey = this.received.get(messageId) ?? (saved?.messageId === messageId ? saved.conversationKey : undefined);
+    if (parseConversationKey(conversationKey).channel !== "imessage" || receivedKey !== conversationKey) throw new Error("The reaction target must be a received iMessage in the current conversation");
     await this.request("/api/send-reaction", { from_number: this.opts.fromNumber, message_handle: messageId, reaction });
   }
 
@@ -148,14 +157,27 @@ export class SendblueChannel implements Outbox {
   async subscribe(url: string): Promise<void> {
     const parsed = new URL(url);
     if (parsed.protocol !== "https:" || parsed.username || parsed.password || parsed.hash) throw new Error("The Sendblue webhook must be a public HTTPS URL without credentials or a fragment");
-    const existing = await this.request("/api/account/webhooks", undefined, "GET");
-    const subscriptions = (existing.webhooks as { receive?: unknown[] } | undefined)?.receive ?? [];
-    for (const entry of subscriptions) {
-      const hook = typeof entry === "string" ? { url: entry } : entry as { url?: string; secret?: string; sendblue_numbers?: string[] } | null;
-      if (hook?.url !== parsed.toString()) continue;
-      if (hook.secret === this.opts.webhookSecret && hook.sendblue_numbers?.length === 1 && hook.sendblue_numbers[0] === this.opts.fromNumber) return;
-      throw new Error("This receive URL already exists with different settings. Remove that URL in Sendblue's webhook settings before registering it again.");
-    }
+    const matchingHooks = async () => {
+      const existing = await this.request("/api/account/webhooks", undefined, "GET");
+      const subscriptions = (existing.webhooks as { receive?: unknown[] } | undefined)?.receive ?? [];
+      return subscriptions.map((entry) => typeof entry === "string" ? { url: entry } : entry as { url?: string; secret?: string; sendblue_numbers?: string[] } | null)
+        .filter((hook) => hook?.url === parsed.toString());
+    };
+    const validate = (hooks: Awaited<ReturnType<typeof matchingHooks>>) => {
+      if (hooks.length > 1) throw new Error("Duplicate receive subscriptions exist for this URL. Remove duplicates in Sendblue's webhook settings, then retry connect.");
+      const hook = hooks[0];
+      if (hook && !(hook.secret === this.opts.webhookSecret && hook.sendblue_numbers?.length === 1 && hook.sendblue_numbers[0] === this.opts.fromNumber)) {
+        throw new Error("This receive URL already exists with different settings. Remove that URL in Sendblue's webhook settings before registering it again.");
+      }
+    };
+    const before = await matchingHooks();
+    validate(before);
+    if (before.length) return;
     await this.request("/api/account/webhooks", { type: "receive", webhooks: [{ url: parsed.toString(), secret: this.opts.webhookSecret, sendblue_numbers: [this.opts.fromNumber] }] });
+    // Separate hosts/data directories cannot share the CLI lock. Surface a racing
+    // registration instead of claiming success or deleting another host's hook.
+    const after = await matchingHooks();
+    validate(after);
+    if (!after.length) throw new Error("Sendblue webhook registration could not be confirmed; inspect account webhooks before retrying.");
   }
 }

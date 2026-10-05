@@ -8,13 +8,15 @@ const keys = { apiKey: "SENDBLUE_API_KEY", apiSecret: "SENDBLUE_API_SECRET", fro
 const savedPath = (dataDir: string): string => path.join(dataDir, "secrets", "sendblue.json");
 
 export function loadSendblueEnv(env: NodeJS.ProcessEnv, dataDir: string): void {
+  if (Object.values(keys).some((key) => env[key] !== undefined)) {
+    sendblueSettings(env);
+    return;
+  }
   const file = savedPath(dataDir);
   if (!fs.existsSync(file)) return;
   let saved: SendblueSettings;
   try { saved = JSON.parse(fs.readFileSync(file, "utf8")); } catch { throw new Error("Invalid saved Sendblue credentials; rerun init --sendblue"); }
   if (!saved || typeof saved !== "object") throw new Error("Invalid saved Sendblue credentials; rerun init --sendblue");
-  // Do not mix a different account's environment credentials with saved credentials.
-  if (env.SENDBLUE_API_KEY || env.SENDBLUE_API_SECRET || env.SENDBLUE_FROM_NUMBER) return;
   for (const [field, key] of Object.entries(keys)) {
     const value = saved[field as keyof SendblueSettings];
     if (typeof value !== "string") throw new Error(`Invalid saved Sendblue setting: ${key}`);
@@ -51,4 +53,16 @@ export function importSendblueCredentials(env: NodeJS.ProcessEnv, dataDir: strin
   fs.chmodSync(file, 0o600);
   for (const [field, key] of Object.entries(keys)) env[key] = settings[field as keyof SendblueSettings];
   return settings;
+}
+
+/** Refuse overlapping connect processes before either can read/post account webhooks. */
+export async function withSendblueRegistrationLock(dataDir: string, register: () => Promise<void>): Promise<void> {
+  const file = path.join(dataDir, "secrets", "sendblue-register.lock");
+  fs.mkdirSync(path.dirname(file), { recursive: true, mode: 0o700 });
+  let fd: number;
+  try { fd = fs.openSync(file, "wx", 0o600); } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "EEXIST") throw err;
+    throw new Error(`Sendblue registration is already locked. Retry after the other connect process finishes. If it crashed, confirm it has stopped before removing ${file}.`);
+  }
+  try { await register(); } finally { fs.closeSync(fd); fs.unlinkSync(file); }
 }

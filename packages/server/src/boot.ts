@@ -26,7 +26,7 @@ import {
   resolveModel,
 } from "@open-instinct/core";
 import type { InboundMessage, InstinctConfig, Outbox, RegisteredTool } from "@open-instinct/core";
-import { InkboxA2A, InkboxChannel, InkboxInboundHydrator, InkboxProvisioner, messagingTools, sendFileTool } from "@open-instinct/inkbox";
+import { downloadInboundAttachments, InkboxA2A, InkboxChannel, InkboxInboundHydrator, InkboxProvisioner, messagingTools, sendFileTool } from "@open-instinct/inkbox";
 import { SendblueChannel, sendblueSettings } from "@open-instinct/sendblue";
 import { MessagingRouter } from "./messaging-router.js";
 import { computerGuidance, detectComputer } from "@open-instinct/computer";
@@ -100,7 +100,7 @@ export async function boot(env: NodeJS.ProcessEnv, opts: BootOptions = {}): Prom
   const modelSpec = `${model.provider}/${model.id}`;
 
   const sendblue = sendblueSettings(env);
-  const sendblueChannel = sendblue ? new SendblueChannel({ ...sendblue, fetchImpl: opts.fetchImpl }) : undefined;
+  const sendblueChannel = sendblue ? new SendblueChannel({ ...sendblue, state, fetchImpl: opts.fetchImpl }) : undefined;
   const inkbox = inkboxSettings(env, config);
   const a2a = inkbox ? new InkboxA2A({
     apiKey: inkbox.apiKey,
@@ -342,8 +342,8 @@ export async function boot(env: NodeJS.ProcessEnv, opts: BootOptions = {}): Prom
     async hydrateInbound(message: InboundMessage): Promise<InboundMessage> {
       if (message.meta?.provider === "sendblue") {
         sendblueChannel?.remember(message);
-        // Sendblue payloads already carry complete direct-conversation scope.
-        return message;
+        // Direct scope is complete, but media still needs the shared safe downloader.
+        return downloadInboundAttachments(message, { mediaDir: state.path("workspace", "inbound"), fetchImpl: opts.fetchImpl });
       }
       return hydrator ? hydrator.hydrate(message) : message;
     },

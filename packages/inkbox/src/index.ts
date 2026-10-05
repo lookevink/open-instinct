@@ -1,7 +1,7 @@
 export { InkboxChannel, splitMessageText, parseConversationKey, IMESSAGE_MAX_CHARS, MEDIA_MAX_BYTES, EMAIL_ATTACHMENT_MAX_BYTES } from "./channel.js";
 export type { InkboxChannelOptions, ParsedKey, FileSend, FileSendResult } from "./channel.js";
 export { parseInkboxEvent, INBOUND_EVENT_TYPES } from "./events.js";
-export { InkboxInboundHydrator, INBOUND_ATTACHMENT_BYTES, INBOUND_ATTACHMENT_LIMIT } from "./hydration.js";
+export { downloadInboundAttachments, InkboxInboundHydrator, INBOUND_ATTACHMENT_BYTES, INBOUND_ATTACHMENT_LIMIT } from "./hydration.js";
 export type { HydrationOptions } from "./hydration.js";
 export { verifyInkboxSignature, computeInkboxSignature, parseWebhookTimestamp } from "./signature.js";
 export type { VerifyOptions } from "./signature.js";
